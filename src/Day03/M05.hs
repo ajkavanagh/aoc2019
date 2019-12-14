@@ -2,6 +2,7 @@
 
 module Day03.M05
     ( main05
+    , nearest
     ) where
 
 import qualified Data.Text.IO as TIO
@@ -22,7 +23,10 @@ data Segment = Segment { line  :: (Int,Int,Int,Int)
                        }
 
 instance Show Segment where
-    show s = "<" ++ show sx ++ "," ++ show sy ++ " -> " ++ show ex ++ "," ++ show ey ++ " : (" ++ show zx ++ "," ++ show zy ++ ") " ++ show (dir s) ++ " >"
+    show s = "<" ++ show sx ++ "," ++ show sy ++ " -> "
+         ++ show ex ++ "," ++ show ey ++ " : ("
+         ++ show zx ++ "," ++ show zy ++ ") "
+         ++ show (dir s) ++ " >"
       where (sx,sy,ex,ey) = line s
             (zx,zy) = end s
 
@@ -106,20 +110,5 @@ main05 = do
     putStrLn $ "Hi, using: " ++ wiresFile
     wireText <- TIO.readFile wiresFile
     let lines = T.lines wireText
-    print $ makeSegment (0,0) (East,4)
-    print $ mapWire $ splitWire "U2,R3"
-    let wire1 = "R8,U5,L5,D3"
-        wire2 = "U7,R6,D4,L4"
-    print $ nearest wire1 wire2
-    let wire3 = "R75,D30,R83,U83,L12,D49,R71,U7,L72"
-    let wire4 = "U62,R66,U55,R34,D71,R55,D58,R83"
-    print $ nearest wire3 wire4
-    let wire5 = "R98,U47,R26,D63,R33,U87,L62,D20,R33,U53,R51"
-    let wire6 = "U98,R91,D20,R16,D67,R40,U7,R15,U6,R7"
-    print $ nearest wire5 wire6
-
-    print "and finally"
-    print $ nearest (lines !! 0) (lines !! 1)
-
-
-
+    print "The solution is:"
+    print $ nearest (head lines) (lines !! 1)

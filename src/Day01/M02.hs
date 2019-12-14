@@ -1,5 +1,6 @@
-module Day01.M02 (
-    main02
+module Day01.M02
+    ( main02
+    , rcalc
     ) where
 
 import qualified Data.Text.IO as TIO

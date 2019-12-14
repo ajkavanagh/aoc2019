@@ -2,6 +2,11 @@
 
 module Day04.M07
     ( main07
+    , showPassword
+    , parsePassword
+    , validatePassword
+    , incPassword
+    , validatedPasswordsBetween
     ) where
 
 import qualified Data.List as    L
@@ -74,15 +79,5 @@ main07 :: IO ()
 main07 = do
     putStrLn "Day 4: Secure container"
     putStrLn "https://adventofcode.com/2019/day/4"
-    putStrLn "\nShow a password"
-    putStrLn $ showPassword ([1,2,3,4,5,6] :: [Int])
-    putStrLn $ "Is 111111 ok: " ++ show (validatePassword $ parsePassword "111111")
-    putStrLn $ "Is 223450 ok: " ++ show (validatePassword $ parsePassword "223450")
-    putStrLn $ "Is 123789 ok: " ++ show (validatePassword $ parsePassword "123789")
-    putStrLn $ "Is 122345 ok: " ++ show (validatePassword $ parsePassword "122345")
-    print $ incPassword (parsePassword "111111")
-    print $ incPassword (parsePassword "111119")
-    print $ incPassword (parsePassword "456789")
-    print $ incPassword (parsePassword "899999")
-    print $ incPassword (parsePassword "999999")
+    putStrLn "Number of passwords between 137683 and 596253 is:"
     print $ length $ map showPassword $ validatedPasswordsBetween "137683" "596253"

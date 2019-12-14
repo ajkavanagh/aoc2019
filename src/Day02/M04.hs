@@ -1,5 +1,6 @@
 module Day02.M04
     ( main04
+    , findSolution
     ) where
 
 -- 04 program workout the bad opcode
@@ -29,25 +30,30 @@ run = go 0
 runWith :: [Int] -> (Int, Int) -> [Int]
 runWith xs (x,y) = run $ [head xs] ++ [x,y] ++ drop 3 xs
 
+findSolution :: T.Text -> Int -> Int
+findSolution block target =
+    let opcodes = (map (read . T.unpack) $ T.split (==',') block) :: [Int]
+        pairs = [(x,y) | x <- [0..99], y <- [0..99]]
+        badops = [head opcodes] ++ [12,2] ++ drop 3 opcodes
+        results = map (runWith opcodes) pairs
+        found = head $ dropWhile ((/= 19690720).head) results
+     in 100 * (found !! 1) + (found !! 2)
+
 main04 :: IO ()
 main04 = do
     putStrLn $ "Hi, using: " ++ opcodesFile
     block <- TIO.readFile opcodesFile
     let opcodes = (map (read . T.unpack) $ T.split (==',') block) :: [Int]
-    print opcodes
-    print $ go 0 [1,0,0,0,99]
-    print $ go 0 [2,3,0,3,99]
-    print $ go 0 [2,4,4,5,99,0]
-    print $ run [1,1,1,4,99,5,6,0,99]
-    print $ run opcodes
     print "Broken code"
+    putStrLn "For solution with 19690720 we need to find the output"
+    print $ findSolution block 19690720
     -- find 19690720 by running them in the 1st and second places
-    let pairs = [(x,y) | x <- [0..99], y <- [0..99]]
-    let badops = [head opcodes] ++ [12,2] ++ drop 3 opcodes
-    print badops
-    print $ run badops
-    -- find the solution
-    let results = map (runWith opcodes) pairs
-    let found = dropWhile ((/= 19690720).head) results
-    print $ head found
+    {-let pairs = [(x,y) | x <- [0..99], y <- [0..99]]-}
+    {-let badops = [head opcodes] ++ [12,2] ++ drop 3 opcodes-}
+    {-print badops-}
+    {-print $ run badops-}
+    {--- find the solution-}
+    {-let results = map (runWith opcodes) pairs-}
+    {-let found = dropWhile ((/= 19690720).head) results-}
+    {-print $ head found-}
 

@@ -48,3 +48,5 @@ tests:
     - -with-rtsopts=-N
     dependencies:
     - aoc2019
+    - hspec
+    - text

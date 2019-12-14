@@ -1,5 +1,6 @@
-module Day01.M01 (
-    main01
+module Day01.M01
+    ( main01
+    , calc
     ) where
 
 import qualified Data.Text.IO as TIO

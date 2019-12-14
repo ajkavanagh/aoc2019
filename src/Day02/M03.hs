@@ -1,5 +1,6 @@
 module Day02.M03
     ( main03
+    , run
     ) where
 
 import qualified Data.Text.IO as TIO
@@ -31,14 +32,7 @@ main03 = do
     putStrLn $ "Hi, using: " ++ opcodesFile
     block <- TIO.readFile opcodesFile
     let opcodes = (map (read . T.unpack) $ T.split (==',') block) :: [Int]
-    print opcodes
-    print $ go 0 [1,0,0,0,99]
-    print $ go 0 [2,3,0,3,99]
-    print $ go 0 [2,4,4,5,99,0]
-    print $ run [1,1,1,4,99,5,6,0,99]
-    print $ run opcodes
-    print "Broken code"
     let badops = [head opcodes] ++ [12,2] ++ drop 3 opcodes
-    print badops
-    print $ run badops
+    putStrLn "The solution is:"
+    print $ head $ run badops
 
