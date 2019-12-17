@@ -26,6 +26,11 @@ library:
   source-dirs: src
   dependencies:
     - text
+    - array
+    - polysemy
+    - polysemy-plugin
+    - co-log-core
+    - co-log-polysemy
 
 executables:
   aoc2019-exe:
@@ -35,8 +40,14 @@ executables:
     - -threaded
     - -rtsopts
     - -with-rtsopts=-N
+    - -O2
+    - -flate-specialise
+    - -fspecialise-aggressively
+    - -fplugin=Polysemy.Plugin
     dependencies:
     - aoc2019
+    - polysemy
+    - polysemy-plugin
 
 tests:
   aoc2019-test:

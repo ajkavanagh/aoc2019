@@ -40,6 +40,24 @@ packages:
 #   commit: e7b331f14bcffb8367cd58fbfc8b40ec7642100a
 #
 # extra-deps: []
+extra-deps:
+  # polysemy 1.2.3
+  - git: https://github.com/polysemy-research/polysemy.git
+    commit: d7d3a938f4c1374161949c2d0aeee542e895e821
+  # polysemy-plugin
+  - git: https://github.com/polysemy-research/polysemy.git
+    #commit: 8aa10efa8a4562eaa3e1dd35f6176eb51613e13d
+    commit: d7d3a938f4c1374161949c2d0aeee542e895e821
+    subdirs:
+      - polysemy-plugin
+  # co-log-polysemy
+  - git: https://github.com/kowainik/co-log.git
+    #commit: 13f6c31d4eb9290c5a5c1ea8de0b2f9f8d0957fa
+    commit: 947f9fb0a0b8bfdfad21255157cec53b48382c89
+    subdirs:
+      - co-log
+      - co-log-core
+      - co-log-polysemy
 
 # Override default flag values for local packages and extra-deps
 # flags: {}
