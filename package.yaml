@@ -31,6 +31,8 @@ library:
     - polysemy-plugin
     - co-log-core
     - co-log-polysemy
+    - unordered-containers
+    - extra
 
 executables:
   aoc2019-exe:
