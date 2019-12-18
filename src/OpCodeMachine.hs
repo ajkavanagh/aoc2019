@@ -53,7 +53,16 @@ data Machine = Machine { memory :: Memory
                        } deriving Show
 
 
-data Op = OpAdd | OpMult | OpInput | OpOutput | OpEnd deriving (Show, Eq)
+data Op = OpAdd
+        | OpMult
+        | OpInput
+        | OpOutput
+        | OpEnd
+        | OpJumpTrue
+        | OpJumpFalse
+        | OpLessThan
+        | OpEquals
+        deriving (Show, Eq)
 
 
 data Mode = Immediate
@@ -246,6 +255,19 @@ doAction :: Members '[ State Machine
 doAction ix op = ((uncurry op <$> getTwoParamsM ix) >>= storeAtM ix) *> updateIP ix
 
 
+testOp :: Members '[ State Machine
+                   , CP.Log String
+                   , Error MachineException
+                   ] r
+      => Instruction -> (Int -> Bool)
+      -> Sem r ()
+testOp ix test = do
+    (p1, target) <- getTwoParamsM ix
+    {-CP.log $ show ix ++ " test " ++ show p1 ++ " jumps " ++ show target-}
+    if test p1 then modify (\m -> Machine { memory=memory m, ip=target })
+               else updateIP ix
+
+
 inputOp :: Members '[ State Machine
                     , Teletype
                     , Error MachineException
@@ -276,9 +298,12 @@ updateIP :: Member (State Machine) r => Instruction -> Sem r ()
 updateIP ix = modify (\m -> Machine { memory=memory m, ip=ip m + size ix })
 
 
-{-runWith :: [Int]-}
-        {-{--> Sem (Members '[State Machine, CP.Log String, Teletype, Error MachineException]) ()-}-}
-        {--> Sem  ()-}
+{-runWith :: Members '[ State Machine-}
+                     {-, Teletype-}
+                     {-, Error MachineException-}
+                     {-] r-}
+        {-=> [Int]-}
+        {--> Sem r ()-}
         {--> IO (Either MachineException ())-}
 -- I can't work out what type description to put in for 'runner' -- it ends up
 -- with really hard types -- so we'll leave it up to polysemy.plugin and GHC to
@@ -291,5 +316,3 @@ runWith opcodes runner =
         & errorToIOFinal @MachineException     -- [Embed IO]
         & embedToFinal @IO
         & runFinal
-
-
