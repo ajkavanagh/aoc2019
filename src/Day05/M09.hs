@@ -61,7 +61,7 @@ exec :: Members '[ State Machine
                  ] r
         => Sem r ()
 exec = do
-    m <- get
+    m <- get @Machine
     {-CP.log $ "IP=" ++ show (ip m)-}
     let i = decodeInstruction m
     case i of

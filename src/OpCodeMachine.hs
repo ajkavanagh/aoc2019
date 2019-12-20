@@ -160,7 +160,7 @@ storeAtM :: Members '[ State Machine
          -> Int -- value
          -> Sem r ()
 storeAtM ix p v = do
-    m <- get
+    m <- get @Machine
     -- parameter mode is on param 3 and must be Position
     let mode = modes ix !! 2
         i = ip m + p
@@ -173,7 +173,7 @@ storeAtM ix p v = do
         else let loc = mem ! i in
             if loc < s || loc > e
               then throw $ InvalidLocation loc
-              else put $ storeAt m loc v
+              else put @Machine $ storeAt m loc v
 
 
 decodeInstructionUsing :: (Int -> Maybe Op)    -- int to opcode
@@ -251,7 +251,7 @@ getTwoParamsM :: Members '[ Error MachineException
               => Instruction
               -> Sem r (Int, Int)
 getTwoParamsM ix = do
-    m <- get
+    m <- get @Machine
     let ps = getTwoParams m ix
     CP.log $ show ps
     either raise return ps
@@ -279,7 +279,7 @@ getParamM :: Members '[ Error MachineException
               => Instruction
               -> Sem r Int
 getParamM ix = do
-    m <- get
+    m <- get @Machine
     let p1 = getParam (head (modes ix)) (ip m +1) (memory m)  -- Either
     either throw return p1
 
@@ -295,16 +295,16 @@ doAction :: Members '[ State Machine
 doAction ix op = ((uncurry op <$> getTwoParamsM ix) >>= storeAtM ix 3) *> updateIP ix
 
 
-testOp :: Members '[ State Machine
+jumpOp :: Members '[ State Machine
                    , CP.Log String
                    , Error MachineException
                    ] r
       => Instruction -> (Int -> Bool)
       -> Sem r ()
-testOp ix test = do
+jumpOp ix test = do
     (p1, target) <- getTwoParamsM ix
     {-CP.log $ show ix ++ " test " ++ show p1 ++ " jumps " ++ show target-}
-    if test p1 then modify (\m -> Machine { memory=memory m, ip=target })
+    if test p1 then modify @Machine (\m -> m { ip=target })
                else updateIP ix
 
 
@@ -335,7 +335,7 @@ outputOp ix = do
 
 
 updateIP :: Member (State Machine) r => Instruction -> Sem r ()
-updateIP ix = modify (\m -> Machine { memory=memory m, ip=ip m + size ix })
+updateIP ix = modify @Machine (\m -> m { ip=ip m + size ix })
 
 
 {-runWith :: Members '[ State Machine-}

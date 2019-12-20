@@ -50,7 +50,7 @@ import           Teletype          (Teletype, readTTY, teletypeToIO, writeTTY)
 -- OpCode Machine
 import           OpCodeMachine     (Instruction, Machine, MachineException (..),
                                     Mode (..), Op (..), decodeInstructionUsing,
-                                    doAction, inputOp, opCode, outputOp, testOp,
+                                    doAction, inputOp, opCode, outputOp, jumpOp,
                                     runWith, runWithPure, ip)
 
 
