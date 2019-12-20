@@ -18,7 +18,7 @@ module OpCodeMachine
       where
 
 
-import           Data.Either       (either, fromLeft, fromRight, isLeft, lefts)
+import           Data.Either       (either, fromLeft, fromRight, isLeft, lefts, rights)
 import           Data.Function     ((&))
 
 import           Data.Array        (Array, bounds, listArray, (!))
@@ -33,16 +33,17 @@ import           Control.Monad.ST  (ST, runST)
 import           Colog.Core        (logStringStdout)
 import qualified Colog.Polysemy    as CP
 import           Polysemy          (Member, Members, Sem, embedToFinal,
-                                    runFinal)
-import           Polysemy.Error    (Error, errorToIOFinal, throw)
+                                    runFinal, run)
+import           Polysemy.Error    (Error, errorToIOFinal, throw, runError)
 import           Polysemy.State    (State, evalState, get, modify, put)
+import           Polysemy.Output   (ignoreOutput)
 
 -- for safe reading
 import           Text.Read         (readEither)
 
 
 -- Effect for input & output
-import           Teletype          (Teletype, readTTY, teletypeToIO, writeTTY)
+import           Teletype          (Teletype, readTTY, teletypeToIO, writeTTY, runTeletypePure)
 
 
 type Memory = Array Int Int
@@ -80,15 +81,35 @@ instance Show Mode where
 data Instruction = Instruction { opCode   :: Op
                                , size     :: Int
                                , modes    :: [Mode]
+                               , params   :: [Int]
                                , location :: Int
                                }
 
 instance Show Instruction where
-    show i = "Instruction<" ++ show (opCode i)
-          ++ ", size=" ++ show (size i)
-          ++ ", modes=" ++ show (modes i)
-          ++ ", at location=" ++ show (location i)
-          ++ ">"
+    {-show i = "Instruction<" ++ show (opCode i)-}
+          {-++ ", size=" ++ show (size i)-}
+          {-++ ", modes=" ++ show (modes i)-}
+          {-++ ", at location=" ++ show (location i)-}
+          {-++ ">"-}
+    show ix = show (location ix) ++ ": " ++ case opCode ix of
+        OpAdd       -> "ADD  " ++ showParam ix 0 ++ "+" ++ showParam ix 1 ++ " -> " ++ showParam ix 2
+        OpMult      -> "MULT " ++ showParam ix 0 ++ "*" ++ showParam ix 1 ++ " -> " ++ showParam ix 2
+        OpInput     -> "IN   " ++ showParam ix 0
+        OpOutput    -> "OUT  " ++ showParam ix 0
+        OpEnd       -> "END"
+        OpJumpTrue  -> "JIT  " ++ showParam ix 0 ++ "/= 0 ip=" ++ showParam ix 1
+        OpJumpFalse -> "JIF  " ++ showParam ix 0 ++ "== 0 ip=" ++ showParam ix 1
+        OpLessThan  -> "LT   " ++ showParam ix 0 ++ " < " ++ showParam ix 1 ++ " -> " ++ showParam ix 2
+        OpEquals    -> "EQ   " ++ showParam ix 0 ++ " == " ++ showParam ix 1 ++ " -> " ++ showParam ix 2
+
+
+showParam :: Instruction -> Int -> String
+showParam ix i =
+    let _mode = modes ix !! i
+        v     = params ix !! i
+    in if _mode == Immediate
+         then show v
+         else "(" ++ show v ++ ")"
 
 
 data MachineException = InvalidOpCode Int Int
@@ -135,17 +156,18 @@ storeAtM :: Members '[ State Machine
                      , Error MachineException
                      ] r
          => Instruction
-         -> Int
+         -> Int -- parameter number
+         -> Int -- value
          -> Sem r ()
-storeAtM ix v = do
+storeAtM ix p v = do
     m <- get
     -- parameter mode is on param 3 and must be Position
     let mode = modes ix !! 2
-        i = ip m + 3
+        i = ip m + p
         mem = memory m
         (s,e) = bounds mem
     if mode /= Position
-      then throw $ InvalidParameterMode mode 3 i
+      then throw $ InvalidParameterMode mode p i
       else if i < s || e > e
         then throw $ InvalidLocation i
         else let loc = mem ! i in
@@ -187,11 +209,25 @@ decodeInstructionUsing iToOpCode iToParamMode opToInt m =
                      p1Mode' <- p1Mode
                      p2Mode' <- p2Mode
                      p3Mode' <- p3Mode
-                     return Instruction { opCode = op'
-                                        , size   = opToInt op'
-                                        , modes  = [p1Mode', p2Mode', p3Mode']
-                                        , location = i
-                                        }
+                     let count = opToInt op'
+                         px = map (getMemLoc m) [i+1..i+count]
+                         pxErrors = lefts px
+                     if not (null pxErrors)
+                       then Left $ MachineExceptions pxErrors
+                       else return Instruction { opCode = op'
+                                               , size   = opToInt op'
+                                               , modes  = [p1Mode', p2Mode', p3Mode']
+                                               , params = rights px
+                                               , location = i
+                                               }
+
+getMemLoc :: Machine -> Int -> Either MachineException Int
+getMemLoc m p =
+    let mem = memory m
+        (s,e) = bounds mem
+    in if p < s || p > e
+         then Left $ InvalidLocation p
+         else Right $ mem ! p
 
 
 getTwoParams :: Machine -> Instruction -> Either MachineException (Int,Int)
@@ -209,13 +245,16 @@ getTwoParams m ix =
 
 
 getTwoParamsM :: Members '[ Error MachineException
+                          , CP.Log String
                           , State Machine
                           ] r
               => Instruction
               -> Sem r (Int, Int)
 getTwoParamsM ix = do
     m <- get
-    either raise return $ getTwoParams m ix
+    let ps = getTwoParams m ix
+    CP.log $ show ps
+    either raise return ps
       where
           raise ex = throw $ MachineExceptions [InvalidInstruction ix, ex]
 
@@ -248,11 +287,12 @@ getParamM ix = do
 -- Execute 'op' on the two parameters and store it at the 3rd parameter in the
 -- machine.  This is used for (+) (*) opcodes
 doAction :: Members '[ State Machine
+                     , CP.Log String
                      , Error MachineException
                      ] r
          => Instruction -> (Int -> Int -> Int)
          -> Sem r ()
-doAction ix op = ((uncurry op <$> getTwoParamsM ix) >>= storeAtM ix) *> updateIP ix
+doAction ix op = ((uncurry op <$> getTwoParamsM ix) >>= storeAtM ix 3) *> updateIP ix
 
 
 testOp :: Members '[ State Machine
@@ -279,7 +319,7 @@ inputOp ix = do
     vs <- readTTY
     case (readEither vs :: Either String Int) of
         Left s  -> throw $ InvalidRead s
-        Right v -> storeAtM ix v *> updateIP ix
+        Right v -> storeAtM ix 1 v *> updateIP ix
 
 
 outputOp :: Members '[ State Machine
@@ -316,3 +356,13 @@ runWith opcodes runner =
         & errorToIOFinal @MachineException     -- [Embed IO]
         & embedToFinal @IO
         & runFinal
+
+
+runWithPure opcodes input runner =
+    runner
+        & evalState (loadMachine opcodes)      -- [Teletype, Log String, Error MachineException]
+        & CP.runLogAsOutput                     -- [Teletype, Error MachineException]
+        & ignoreOutput
+        & runTeletypePure input                -- [Error MachineException]
+        & runError                             -- []
+        & run

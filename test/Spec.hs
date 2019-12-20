@@ -5,6 +5,7 @@ import  Day01Specs (m01Specs, m02Specs)
 import  Day02Specs (m03Specs, m04Specs)
 import  Day03Specs (m05Specs, m06Specs)
 import  Day04Specs (m07Specs, m08Specs)
+import  Day07Specs (m13Specs)
 
 main :: IO ()
 main = hspecWith defaultConfig {configFastFail = True} specs
@@ -19,3 +20,4 @@ specs = do
     m06Specs
     m07Specs
     m08Specs
+    m13Specs

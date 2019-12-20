@@ -51,7 +51,7 @@ import           Teletype          (Teletype, readTTY, teletypeToIO, writeTTY)
 import           OpCodeMachine     (Instruction, Machine, MachineException (..),
                                     Mode (..), Op (..), decodeInstructionUsing,
                                     doAction, inputOp, opCode, outputOp, testOp,
-                                    runWith, ip)
+                                    runWith, ip, memory)
 
 
 exec :: Members '[ State Machine
@@ -63,11 +63,12 @@ exec :: Members '[ State Machine
 exec = do
     m <- get
     {-CP.log $ "IP=" ++ show (ip m)-}
+    CP.log $ "mem = " ++ show (memory m)
     let i = decodeInstruction m
     case i of
         Left ex -> throw ex
-        Right ix -> --do
-            {-CP.log $ "Instruction=" ++ show ix-}
+        Right ix -> do
+            CP.log $ show ix
             case opCode ix of
                 OpAdd       -> doAction ix (+)  *> exec
                 OpMult      -> doAction ix (*)  *> exec
