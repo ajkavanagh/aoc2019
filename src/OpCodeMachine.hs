@@ -35,7 +35,7 @@ import qualified Colog.Polysemy    as CP
 import           Polysemy          (Member, Members, Sem, embedToFinal,
                                     runFinal, run)
 import           Polysemy.Error    (Error, errorToIOFinal, throw, runError)
-import           Polysemy.State    (State, evalState, get, modify, put)
+import           Polysemy.State    (State, evalState, get, modify, put, runState)
 import           Polysemy.Output   (ignoreOutput)
 
 -- for safe reading
@@ -49,8 +49,11 @@ import           Teletype          (Teletype, readTTY, teletypeToIO, writeTTY, r
 type Memory = Array Int Int
 
 
-data Machine = Machine { memory :: Memory
-                       , ip     :: Int
+data Machine = Machine { memory  :: Memory
+                       , ip      :: Int
+                       , ended   :: Bool
+                       , inList  :: [Int]
+                       , outList :: [Int]
                        } deriving Show
 
 
@@ -114,7 +117,7 @@ showParam ix i =
 
 data MachineException = InvalidOpCode Int Int
                       | InvalidParameterMode Mode Int Int
-                      | InvalidLocation Int
+                      | InvalidLocation String Int
                       | InvalidInstructionPointer Int
                       | InvalidInstruction Instruction
                       | InvalidRead String
@@ -130,7 +133,7 @@ instance Show MachineException where
                                        ++ show m ++ ") for param "
                                        ++ show p ++ " at position: "
                                        ++ show pos
-    show (InvalidLocation pos) = "Invalid location/position: " ++ show pos
+    show (InvalidLocation msg pos) = "Invalid location/position: " ++ msg ++ ": " ++ show pos
     show (InvalidInstructionPointer pos) = "Invalid Instruction Pointer: " ++ show pos
     show (InvalidInstruction ix) = "Invalid Instruction: " ++ show ix
     show (MachineExceptions ms) = intercalate ", " $ map show ms
@@ -140,11 +143,16 @@ instance Show MachineException where
 
 
 loadMachine :: [Int] -> Machine
-loadMachine xs = Machine { memory=listArray (0, length xs -1) xs, ip=0 }
+loadMachine xs = Machine { memory=listArray (0, length xs -1) xs
+                         , ip=0
+                         , ended=False
+                         , inList=[]
+                         , outList=[]
+                         }
 
 
 storeAt :: Machine -> Int -> Int -> Machine
-storeAt m i v = Machine { memory=mem', ip=ip m }
+storeAt m i v = m { memory=mem', ip=ip m }
   where
       mem' = runST $ do
         arr <- thaw (memory m) :: ST s (STArray s Int Int)
@@ -161,18 +169,18 @@ storeAtM :: Members '[ State Machine
          -> Sem r ()
 storeAtM ix p v = do
     m <- get @Machine
-    -- parameter mode is on param 3 and must be Position
-    let mode = modes ix !! 2
+    -- parameter mode is on param p and must be Position
+    let mode = modes ix !! (p -1)
         i = ip m + p
         mem = memory m
         (s,e) = bounds mem
     if mode /= Position
       then throw $ InvalidParameterMode mode p i
       else if i < s || e > e
-        then throw $ InvalidLocation i
+        then throw $ InvalidLocation "storeAtM" i
         else let loc = mem ! i in
             if loc < s || loc > e
-              then throw $ InvalidLocation loc
+              then throw $ InvalidLocation "storeAtM 2nd part" loc
               else put @Machine $ storeAt m loc v
 
 
@@ -210,7 +218,7 @@ decodeInstructionUsing iToOpCode iToParamMode opToInt m =
                      p2Mode' <- p2Mode
                      p3Mode' <- p3Mode
                      let count = opToInt op'
-                         px = map (getMemLoc m) [i+1..i+count]
+                         px = map (getMemLoc m) [i+1..i+count-1]
                          pxErrors = lefts px
                      if not (null pxErrors)
                        then Left $ MachineExceptions pxErrors
@@ -226,7 +234,7 @@ getMemLoc m p =
     let mem = memory m
         (s,e) = bounds mem
     in if p < s || p > e
-         then Left $ InvalidLocation p
+         then Left $ InvalidLocation "getMemLoc" p
          else Right $ mem ! p
 
 
@@ -264,11 +272,11 @@ getParam mode pos mem =
     let (s,e) = bounds mem
         p1 = mem ! pos
      in if pos < s || pos > e
-      then Left $ InvalidLocation pos
+      then Left $ InvalidLocation "getParam" pos
       else let imm = mem ! pos
             in case mode of
                 Position -> if imm < s || imm > e
-                              then Left $ InvalidLocation imm
+                              then Left $ InvalidLocation "getParam:position" imm
                               else Right $ mem ! imm
                 Immediate -> Right imm
 
@@ -322,6 +330,29 @@ inputOp ix = do
         Right v -> storeAtM ix 1 v *> updateIP ix
 
 
+-- try to get an input from the inList; if succesful, update the list and store
+-- it in the right place, and return False.
+-- Otherwise return True, which will cause the caller to exec the computation
+-- so that another process can continue.
+inputOpState :: Members '[ State Machine
+                         , CP.Log String
+                         , Error MachineException
+                         ] r
+             => Instruction
+             -> Sem r Bool
+inputOpState ix = do
+    m <- get @Machine
+    let vs = inList m
+    if null vs
+      then pure True  -- yield as we need input
+      else do
+        let (v:vs') = vs
+        storeAtM ix 1 v
+        updateIP ix
+        modify @Machine (\m -> m { inList=vs' })
+        pure False    -- don't yield as we had input
+
+
 outputOp :: Members '[ State Machine
                      , Teletype
                      , Error MachineException
@@ -334,8 +365,36 @@ outputOp ix = do
     updateIP ix
 
 
+-- Output an Int to the outList of the machine.
+outputOpState :: Members '[ State Machine
+                          , Error MachineException
+                          ] r
+              => Instruction
+              -> Sem r ()
+outputOpState ix = do
+    p <- getParamM ix
+    modify @Machine (\m -> m { outList=outList m ++ [p] })
+    updateIP ix
+
+
+endOp :: Member (State Machine) r
+      => Sem r ()
+endOp = modify @Machine (\m -> m { ended=True })
+
+
 updateIP :: Member (State Machine) r => Instruction -> Sem r ()
 updateIP ix = modify @Machine (\m -> m { ip=ip m + size ix })
+
+
+-- add an element to the input of a machine
+appendToMachineInput :: Machine -> Int -> Machine
+appendToMachineInput m v = m { inList=inList m ++ [v] }
+
+
+peekMachineOutput :: Machine -> Maybe Int
+peekMachineOutput m = case outList m of
+    [] -> Nothing
+    xs -> Just $ last xs
 
 
 {-runWith :: Members '[ State Machine-}
@@ -358,11 +417,63 @@ runWith opcodes runner =
         & runFinal
 
 
+{-
+runWithState
+  :: Polysemy.Internal.Sem
+       '[State s, Colog.Polysemy.Effect.Log String, Teletype.Teletype,
+         Polysemy.Error.Error MachineException,
+         Polysemy.Embed.Type.Embed IO, Polysemy.Final.Final IO]
+       a
+     -> s -> IO (Either MachineException (s, a))
+-}
+runWithState runner machine =
+    runner
+        & runState machine                     -- [Teletype, Log String, Embed IO, Error MachineException]
+        & CP.runLogAction @IO logStringStdout  -- [Teletype, Embed IO, Error MachineException]
+        & teletypeToIO                         -- [Embed IO, Error MachineException]
+        & errorToIOFinal @MachineException     -- [Embed IO]
+        & embedToFinal @IO
+        & runFinal
+
+
+{-
+runWithPure
+  :: [Int]
+     -> [String]
+     -> Polysemy.Internal.Sem
+          '[State Machine, Colog.Polysemy.Effect.Log o,
+            Polysemy.Output.Output o, Teletype.Teletype,
+            Polysemy.Error.Error e]
+          a
+     -> Either e ([String], a)
+-}
 runWithPure opcodes input runner =
     runner
         & evalState (loadMachine opcodes)      -- [Teletype, Log String, Error MachineException]
         & CP.runLogAsOutput                     -- [Teletype, Error MachineException]
         & ignoreOutput
+        & runTeletypePure input                -- [Error MachineException]
+        & runError                             -- []
+        & run
+
+
+-- this version is used when passing and returning the state.  This functions
+-- type signature is:
+{-runWithPureState
+  :: [String]
+     -> Polysemy.Internal.Sem
+          '[State s, Colog.Polysemy.Effect.Log o, Polysemy.Output.Output o,
+            Teletype.Teletype, Polysemy.Error.Error e]
+          a
+     -> s
+     -> Either e ([String], (s, a))
+-}
+-- i.e. the State is returned in the Right part of the Either.
+runWithPureState input runner machine =
+    runner
+        & runState machine                     -- [Teletype, Log String, Error MachineException]
+        & CP.runLogAsOutput                     -- [Teletype, Error MachineException]
+        & ignoreOutput  -- may want to push the output to a string?
         & runTeletypePure input                -- [Error MachineException]
         & runError                             -- []
         & run
