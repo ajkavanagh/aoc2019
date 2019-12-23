@@ -18,7 +18,8 @@ module OpCodeMachine
       where
 
 
-import           Data.Either       (either, fromLeft, fromRight, isLeft, lefts, rights)
+import           Data.Either       (either, fromLeft, fromRight, isLeft, lefts,
+                                    rights)
 import           Data.Function     ((&))
 
 import           Data.Array        (Array, bounds, listArray, (!))
@@ -32,18 +33,20 @@ import           Control.Monad.ST  (ST, runST)
 -- for Polysemy
 import           Colog.Core        (logStringStdout)
 import qualified Colog.Polysemy    as CP
-import           Polysemy          (Member, Members, Sem, embedToFinal,
-                                    runFinal, run)
-import           Polysemy.Error    (Error, errorToIOFinal, throw, runError)
-import           Polysemy.State    (State, evalState, get, modify, put, runState)
+import           Polysemy          (Member, Members, Sem, embedToFinal, run,
+                                    runFinal)
+import           Polysemy.Error    (Error, errorToIOFinal, runError, throw)
 import           Polysemy.Output   (ignoreOutput)
+import           Polysemy.State    (State, evalState, get, modify, put,
+                                    runState)
 
 -- for safe reading
 import           Text.Read         (readEither)
 
 
 -- Effect for input & output
-import           Teletype          (Teletype, readTTY, teletypeToIO, writeTTY, runTeletypePure)
+import           Teletype          (Teletype, readTTY, runTeletypePure,
+                                    teletypeToIO, writeTTY)
 
 
 type Memory = Array Int Int

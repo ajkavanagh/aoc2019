@@ -33,6 +33,7 @@ library:
     - co-log-polysemy
     - unordered-containers
     - extra
+    - split
 
 executables:
   aoc2019-exe:

@@ -27,7 +27,8 @@ import           Data.Array        (Array, bounds, listArray, (!))
 import           Data.Array.MArray (freeze, newListArray, thaw, writeArray)
 import           Data.Array.ST     (STArray)
 
-import           Data.List         (intercalate, foldl', permutations, maximumBy)
+import           Data.List         (foldl', intercalate, maximumBy,
+                                    permutations)
 
 import           Control.Monad.ST  (ST, runST)
 
@@ -50,12 +51,12 @@ import           Teletype          (Teletype, readTTY, teletypeToIO, writeTTY)
 -- OpCode Machine
 import           OpCodeMachine     (Instruction, Machine, MachineException (..),
                                     Mode (..), Op (..), decodeInstructionUsing,
-                                    doAction, inputOp, opCode, outputOp, jumpOp,
-                                    runWith, runWithPure, ip)
+                                    doAction, inputOp, ip, jumpOp, opCode,
+                                    outputOp, runWith, runWithPure)
 
 
 -- use the opcode machine from Day 05, part 2
-import Day05.M10  (exec)
+import           Day05.M10         (exec)
 
 
 opcodesFile = "files/07/opcodes.txt"

@@ -27,7 +27,8 @@ import           Data.Array        (Array, bounds, listArray, (!))
 import           Data.Array.MArray (freeze, newListArray, thaw, writeArray)
 import           Data.Array.ST     (STArray)
 
-import           Data.List         (intercalate, foldl', permutations, maximumBy)
+import           Data.List         (foldl', intercalate, maximumBy,
+                                    permutations)
 
 import           Control.Monad     (foldM)
 import           Control.Monad.ST  (ST, runST)
@@ -50,9 +51,13 @@ import           Teletype          (Teletype, readTTY, teletypeToIO, writeTTY)
 
 -- OpCode Machine
 import           OpCodeMachine     (Instruction, Machine, MachineException (..),
-                                    Mode (..), Op (..), decodeInstructionUsing,
-                                    doAction, inputOp, opCode, outputOp, jumpOp,
-                                    runWith, runWithPure, runWithState, ip, memory, ended, inList, outList, inputOpState, outputOpState, loadMachine, appendToMachineInput, peekMachineOutput, endOp)
+                                    Mode (..), Op (..), appendToMachineInput,
+                                    decodeInstructionUsing, doAction, endOp,
+                                    ended, inList, inputOp, inputOpState, ip,
+                                    jumpOp, loadMachine, memory, opCode,
+                                    outList, outputOp, outputOpState,
+                                    peekMachineOutput, runWith, runWithPure,
+                                    runWithState)
 
 {-
    Day 7: Part 2, feed back loops for the amlifier
@@ -85,7 +90,7 @@ ensure we can get the Machine out of the runPure function.
 This is done in the OpCodeMachine module ^^^.
 -}
 
-import Day05.M10 (decodeInstruction)
+import           Day05.M10         (decodeInstruction)
 
 -- we need to change the M10 version of exec to use the inputOpState and
 -- outputOpState and to get the Machine back out of the runtime.  This means
@@ -118,7 +123,7 @@ exec = do
                 OpEquals    -> doAction ix eq   *> exec
                 OpEnd       -> endOp
   where
-      toBool True = 1
+      toBool True  = 1
       toBool False = 0
       lt x y = toBool $ x < y
       eq x y = toBool $ x == y
@@ -166,7 +171,7 @@ runMachineNInAmplifierWith f amp n input = do
         Just output -> pure (output, updateMachineInAmplifier amp n m'')
         -- this is horrible; TODO we'll fix this by passing a constructor for
         -- the error.
-        Nothing -> fail "Something went wrong"
+        Nothing     -> fail "Something went wrong"
 
 
 fixRunWithStateIO :: Machine -> IO Machine
@@ -176,7 +181,7 @@ fixRunWithStateIO m = do
         Right (m', _) -> pure m'
         -- this is also horrible; TODO work out how to fix this so we don't have
         -- to use fail
-        Left ex -> fail $ show ex
+        Left ex       -> fail $ show ex
 
 
 -- This runner, runs a single machine with input:
@@ -242,31 +247,6 @@ runPure opcodes input = runWithPure opcodes input exec
 
 runIO :: [Int] -> IO (Either MachineException ())
 runIO opcodes = runWith opcodes exec
-
-
--- // HERE - replace following
---
--- runs the 5 opcode machines with the input string split into chars and a
--- "0" fed to the first opcode machine.  The output is the final thing printed
--- as a string.  This uses the runPure interpreter which pretends to be actual
--- input/output.
-combined opcodes input = foldl' runner "0" (splitString input)
-  where
-      splitString = map (: [])
-      runner :: String -> String -> String
-      runner value phase = let res = runPure opcodes [phase, value]
-                           in case res of
-                               Left ex -> error $ show ex
-                               Right r -> last (fst r)
-
-
-findHighest :: IO String
-findHighest = do
-    let perms = map concat $ permutations $ map (: []) "01234"
-    opcodes <- loadOpcodes
-    let combs = [(combined opcodes phases, phases) | phases <- perms]
-        max_comb = maximumBy (\x y -> (read (fst x) :: Int) `compare` (read (fst y) :: Int)) combs
-    return $ fst max_comb ++ " from " ++ snd max_comb
 
 
 findHighest2 :: IO String

@@ -3,25 +3,25 @@ module Lib
     ) where
 
 -- for argument parsing
-import System.Environment (getArgs)
-import           System.Exit               (ExitCode (..), exitWith)
+import           System.Environment (getArgs)
+import           System.Exit        (ExitCode (..), exitWith)
 
 -- The individual days
-import Day01.M01 (main01)
-import Day01.M02 (main02)
-import Day02.M03 (main03)
-import Day02.M04 (main04)
-import Day03.M05 (main05)
-import Day03.M06 (main06)
-import Day04.M07 (main07)
-import Day04.M08 (main08)
-import Day05.M09 (main09)
-import Day05.M10 (main10)
-import Day06.M11 (main11)
-import Day06.M12 (main12)
-import Day07.M13 (main13)
-import Day07.M14 (main14)
-import Day08.M15 (main15)
+import           Day01.M01          (main01)
+import           Day01.M02          (main02)
+import           Day02.M03          (main03)
+import           Day02.M04          (main04)
+import           Day03.M05          (main05)
+import           Day03.M06          (main06)
+import           Day04.M07          (main07)
+import           Day04.M08          (main08)
+import           Day05.M09          (main09)
+import           Day05.M10          (main10)
+import           Day06.M11          (main11)
+import           Day06.M12          (main12)
+import           Day07.M13          (main13)
+import           Day07.M14          (main14)
+import           Day08.M15          (main15)
 
 
 libmain :: IO ()
