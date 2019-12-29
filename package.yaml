@@ -34,6 +34,7 @@ library:
     - unordered-containers
     - extra
     - split
+    - vector
 
 executables:
   aoc2019-exe:
