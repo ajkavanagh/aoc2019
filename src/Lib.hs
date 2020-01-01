@@ -27,6 +27,7 @@ import           Day09.M17          (main17)
 import           Day09.M18          (main18)
 import           Day10.M19          (main19)
 import           Day10.M20          (main20)
+import           Day11.M21          (main21)
 
 
 libmain :: IO ()
@@ -62,6 +63,7 @@ runWith cmd =
         "9-2" -> main18
         "10-1" -> main19
         "10-2" -> main20
+        "11-1" -> main21
         _ -> do
             putStrLn "Didn't recognise that day code.  Must be in format 1-1"
             exitWith (ExitFailure 1)
