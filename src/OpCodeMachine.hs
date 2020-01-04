@@ -97,11 +97,6 @@ data Instruction = Instruction { opCode   :: Op
                                }
 
 instance Show Instruction where
-    {-show i = "Instruction<" ++ show (opCode i)-}
-          {-++ ", size=" ++ show (size i)-}
-          {-++ ", modes=" ++ show (modes i)-}
-          {-++ ", at location=" ++ show (location i)-}
-          {-++ ">"-}
     show ix = show (location ix) ++ ": " ++ case opCode ix of
         OpAdd       -> "ADD  " ++ showParam ix 0 ++ "+" ++ showParam ix 1 ++ " -> " ++ showParam ix 2
         OpMult      -> "MULT " ++ showParam ix 0 ++ "*" ++ showParam ix 1 ++ " -> " ++ showParam ix 2
@@ -167,32 +162,29 @@ storeAtM :: Members '[ State Machine
                      , Error MachineException
                      ] r
          => Instruction
-         -> Int -- parameter number
+         -> Int -- parameter number (1,2 or 3)
          -> Int -- value
          -> Sem r ()
 storeAtM ix p v = do
     m <- get @Machine
-    -- parameter mode is on param p and must be Position
+    -- parameter mode is on param p and must be Position or Relative
     let mode = modes ix !! (p -1)
         i = ip m + p
+        pval = params ix !! (p -1)
         mem = memory m
     case mode of
         Immediate -> throw $ InvalidParameterMode mode p i
-        Position -> case M.fetch mem i of
-          Left ex -> throw $ InvalidLocation ("storeAtM param fetch " ++ show ex) i
-          Right loc -> case M.store mem loc v of
-              Left ex -> throw $ InvalidLocation ("storeAtM Position store " ++ show ex) loc
-              Right mem' ->  do
-                  CP.log $ "storeAtM " ++ show ix ++ " pos:" ++ show loc ++ " value:" ++ show v
-                  put @Machine m {memory=mem'}
-        Relative -> case M.fetch mem i of
-            Left ex -> throw $ InvalidLocation ("StoreAtM param fetch " ++ show ex) i
-            Right imm -> let relLoc = relBase m + imm in
-                             case M.store mem relLoc v of
-                                 Left ex -> throw $ InvalidLocation ("storeAtM:relative " ++ show ex) relLoc
-                                 Right mem' -> do
-                                     CP.log $ "storeAtM(rel) " ++ show ix ++ " pos:" ++ show imm ++ " value:" ++ show v
-                                     put @Machine m {memory=mem'}
+        Position -> case M.store mem pval v of
+            Left ex -> throw $ InvalidLocation ("storeAtM Position store " ++ show ex) pval
+            Right mem' ->  do
+                CP.log $ "storeAtM " ++ show ix ++ " pos:" ++ show pval ++ " value:" ++ show v
+                put @Machine m {memory=mem'}
+        Relative -> let relLoc = relBase m + pval
+                     in case M.store mem relLoc v of
+                        Left ex -> throw $ InvalidLocation ("storeAtM:relative " ++ show ex) relLoc
+                        Right mem' -> do
+                            CP.log $ "storeAtM(rel) " ++ show ix ++ " pos:" ++ show pval ++ " value:" ++ show v
+                            put @Machine m {memory=mem'}
 
 
 decodeInstructionUsing :: (Int -> Maybe Op)    -- int to opcode
@@ -247,10 +239,8 @@ getMemLoc m p = case M.fetch (memory m) p of
 
 getTwoParams :: Machine -> Instruction -> Either MachineException (Int,Int)
 getTwoParams m ix =
-    let _modes = modes ix
-        i = ip m
-        p1 = getParam (head _modes) (i+1) m  -- Either
-        p2 = getParam (_modes !! 1) (i+2) m  -- Either
+    let p1 = getParamIx 1 ix m  -- Either
+        p2 = getParamIx 2 ix m  -- Either
         errors = lefts [p1,p2]
     in if not (null errors)
          then Left $ MachineExceptions errors
@@ -273,19 +263,19 @@ getTwoParamsM ix = do
           raise ex = throw $ MachineExceptions [InvalidInstruction ix, ex]
 
 
-getParam :: Mode -> Int -> Machine -> Either MachineException Int
-getParam mode pos m =
-    case M.fetch (memory m) pos of
-        Left ex -> Left $ InvalidLocation ("getParam " ++ show ex) pos
-        Right imm -> case mode of
-            Position -> case M.fetch (memory m) imm of
-                Left ex -> Left $ InvalidLocation ("getParam:position " ++ show ex) imm
-                Right v -> Right v
-            Immediate -> Right imm
-            Relative  -> let relLoc = relBase m + imm in
-                             case M.fetch (memory m) relLoc of
-                                 Left ex -> Left $ InvalidLocation ("getParam:relative " ++ show ex) relLoc
-                                 Right v -> Right v
+getParamIx :: Int -> Instruction -> Machine -> Either MachineException Int
+getParamIx p ix m =
+    let pval = params ix !! (p -1)  -- params numbered 1,2,3
+        mode = modes ix !! (p -1)   -- get the mode
+     in case mode of
+         Immediate -> Right pval
+         Position -> case getMemLoc m pval of
+             Left ex -> Left $ InvalidLocation ("getParam:position " ++ show ex) pval
+             Right v -> Right v
+         Relative -> let relLoc = relBase m + pval
+                      in case getMemLoc m relLoc of
+                          Left ex -> Left $ InvalidLocation ("getParam:relative " ++ show ex) relLoc
+                          Right v -> Right v
 
 
 getParamM :: Members '[ Error MachineException
@@ -295,7 +285,7 @@ getParamM :: Members '[ Error MachineException
               -> Sem r Int
 getParamM ix = do
     m <- get @Machine
-    let p1 = getParam (head (modes ix)) (ip m +1) m  -- Either
+    let p1 = getParamIx 1 ix m -- Either
     either throw return p1
 
 
