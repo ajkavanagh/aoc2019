@@ -7,7 +7,7 @@ import           Day03Specs        (m05Specs, m06Specs)
 import           Day04Specs        (m07Specs, m08Specs)
 import           Day07Specs        (m13Specs)
 import           Day10Specs        (m19Specs, m20Specs)
-import           Day12Specs        (m23Specs)
+import           Day12Specs        (m23Specs, m24Specs)
 
 
 main :: IO ()
@@ -27,3 +27,4 @@ specs = do
     m19Specs
     m20Specs
     m23Specs
+    m24Specs
