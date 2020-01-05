@@ -7,6 +7,7 @@ import qualified Data.Text    as T
 import qualified Data.Text.IO as TIO
 
 import qualified Day14.M27    as M27
+import qualified Day14.M28    as M28
 
 
 m27testIt :: [T.Text] -> Int
@@ -33,3 +34,23 @@ m27Specs = --do
 
         it "testSet5 should consume 2210736 ORE" $
             m27testIt M27.testSet5 `shouldBe` 2210736
+
+
+m28testIt :: [T.Text] -> Int
+m28testIt ts = let (Right rts) = M28.loadTestSet ts
+                in M28.findFuelForOneT rts
+
+
+m28Specs :: Spec
+m28Specs = --do
+
+    describe "Day 14, part 1: Space Stoichiometry: fuel for 1T ORE" $ do
+
+        it "testSet3 should provide 82892753 FUEL for 1_000_000_000 ORE" $
+            m28testIt M28.testSet3 `shouldBe` 82892753
+
+        it "testSet4 should provide 5586022 FUEL for 1_000_000_000 ORE" $
+            m28testIt M28.testSet4 `shouldBe` 5586022
+
+        it "testSet5 should provide 460664 FUEL for 1_000_000_000 ORE" $
+            m28testIt M28.testSet5 `shouldBe` 460664

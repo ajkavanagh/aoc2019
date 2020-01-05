@@ -1,27 +1,27 @@
 {-# LANGUAGE OverloadedStrings #-}
 
-module Day14.M27 where
+module Day14.M28 where
 
 
 
-import qualified Data.Text                as T
-import qualified Data.Text.IO             as TIO
+import qualified Data.Text              as T
+import qualified Data.Text.IO           as TIO
 
-import           Data.Function            (on)
-import           Data.List                (foldr1, iterate', nub, sortBy)
-import           Data.Tuple.Extra         (first)
+import           Data.Function          (on)
+import           Data.List              (foldr1, iterate', nub, sortBy)
+import           Data.Tuple.Extra       (first)
 
-import           Control.Applicative      ((<|>))
-import           Control.Monad            (void)
-import           Text.Parsec              (oneOf, parse, parseTest, parserFail,
-                                           try)
-import           Text.Parsec.Char         (char, digit, spaces, string, upper)
-import           Text.Parsec.Combinator   (endBy, endBy1, eof, many1, manyTill,
-                                           sepBy, sepBy1)
-import           Text.Parsec.Error        (ParseError)
-import           Text.Parsec.String       (Parser)
+import           Control.Applicative    ((<|>))
+import           Control.Monad          (void)
+import           Text.Parsec            (oneOf, parse, parseTest, parserFail,
+                                         try)
+import           Text.Parsec.Char       (char, digit, spaces, string, upper)
+import           Text.Parsec.Combinator (endBy, endBy1, eof, many1, manyTill,
+                                         sepBy, sepBy1)
+import           Text.Parsec.Error      (ParseError)
+import           Text.Parsec.String     (Parser)
 
-import qualified Data.HashMap.Lazy        as H
+import qualified Data.HashMap.Lazy      as H
 
 
 moonsFile = "files/14/reactions.txt"
@@ -213,6 +213,42 @@ determineMultiple avail toMake wanted =
 chemMade :: String -> Reactor -> Int
 chemMade chem r = snd $ H.lookupDefault (0,0) chem r
 
+-- for part 2 we have to find the fuel that just fits into 1 Trillian ORE
+
+oneT :: Int
+oneT = 1000000000000
+
+findUpperPower2 :: (Int -> Int) -> Int -> Int
+findUpperPower2 f target = fst $ head $ dropWhile ((<target).snd) $ iterate' go (1, 0)
+  where
+      go :: ((Int,Int) -> (Int,Int))
+      go (input, lastResult) = let next = input * 2 in (next, f next)
+
+
+binarySearch :: (Int -> Ordering) -> Int -> Int -> Int
+binarySearch test l u
+  | l == u = l
+  | l > u = binarySearch test u l
+  | l == u-1 = u
+  | otherwise = let m = minimum [((u - l) `div` 2) + l, u]
+                 in case test m of
+                     EQ -> m
+                     LT -> binarySearch test m u
+                     GT -> binarySearch test l m
+
+
+-- Note the -1 is because the checkIt function finds the one just above oneT,
+-- not below it
+findFuelForOneT :: Reaction -> Int
+findFuelForOneT rts = result -1
+  where
+    upper = findUpperPower2 runIt oneT
+    result = binarySearch checkIt 1 upper
+    runIt :: Int -> Int
+    runIt n = chemMade "ORE" $ consume (n, "FUEL") newReactor rts
+    checkIt :: Int -> Ordering
+    checkIt n = runIt n `compare` oneT
+
 
 -- test sets for testing the algorithms
 
@@ -291,13 +327,14 @@ testSet5 = [ "171 ORE => 8 CNZTR"
            ]
 
 
-main27 :: IO ()
-main27 = do
-    putStrLn "Day14, Part 1: Space Stoichiometry"
+main28 :: IO ()
+main28 = do
+    putStrLn "Day14, Part 2: Space Stoichiometry - fuel for 1_000_000_000_000 ORE"
     txt <- loadReactionsText
     let mrts = loadReactions txt
     case mrts of
         Left ex -> print ex
         Right rts -> do
-            let res = chemMade "ORE" $ consume (1, "FUEL") newReactor rts
-            putStrLn $ "The amount of ORE for 1 FUEL is: " ++ show res
+            let res = findFuelForOneT rts
+            putStrLn $ "The amount of FUEL for 1T ORE is: " ++ show res
+
