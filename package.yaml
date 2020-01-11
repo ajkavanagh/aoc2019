@@ -25,17 +25,22 @@ dependencies:
 library:
   source-dirs: src
   dependencies:
-    - text
     - array
-    - polysemy
-    - polysemy-plugin
     - co-log-core
     - co-log-polysemy
-    - unordered-containers
     - extra
-    - split
-    - vector
+    - linear
+    - microlens
+    - microlens-platform
+    - microlens-th
     - parsec
+    - polysemy
+    - polysemy-plugin
+    - safe
+    - split
+    - text
+    - unordered-containers
+    - vector
 
 executables:
   aoc2019-exe:

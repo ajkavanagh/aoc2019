@@ -18,6 +18,9 @@ module OpCodeMachine
       where
 
 
+import qualified Data.Text         as T
+import qualified Data.Text.IO      as TIO
+
 import           Data.Either       (either, fromLeft, fromRight, isLeft, lefts,
                                     rights)
 import           Data.Function     ((&))
@@ -489,3 +492,121 @@ runWithPureState input runner machine =
         & runTeletypePure input                -- [Error MachineException]
         & runError                             -- []
         & run
+
+
+-- These are the final opcode machine functions, as determined Day 13 (ish).
+
+-- This is the main exec for the machine; it runs instructions until either the
+-- input yields (this is the PURE version) or the program ends.
+exec :: Members '[ State Machine
+                 , Error MachineException
+                 , CP.Log String
+                 , Teletype
+                 ] r
+        => Sem r ()
+exec = do
+    m <- get @Machine
+    let i = decodeInstruction m
+    case i of
+        Left ex -> throw ex
+        Right ix -> do
+            CP.log $ show ix
+            case opCode ix of
+                OpAdd       -> doAction ix (+)  *> exec
+                OpMult      -> doAction ix (*)  *> exec
+                OpInput     -> inputOpState ix >>= \yield ->
+                    if yield then pure () else exec
+                OpOutput    -> outputOpState ix      *> exec
+                OpJumpTrue  -> jumpOp   ix (/=0) *> exec
+                OpJumpFalse -> jumpOp   ix (==0) *> exec
+                OpLessThan  -> doAction ix lt   *> exec
+                OpEquals    -> doAction ix eq   *> exec
+                OpEnd       -> endOp
+                OpRBAdj     -> adjustRelBaseOp ix  *> exec
+  where
+      toBool True  = 1
+      toBool False = 0
+      lt x y = toBool $ x < y
+      eq x y = toBool $ x == y
+
+
+decodeInstruction :: Machine -> Either MachineException Instruction
+decodeInstruction = decodeInstructionUsing intToOpCode intToParamMode opCodeToSize
+
+
+intToOpCode :: Int -> Maybe Op
+intToOpCode 1  = Just OpAdd
+intToOpCode 2  = Just OpMult
+intToOpCode 3  = Just OpInput
+intToOpCode 4  = Just OpOutput
+intToOpCode 5  = Just OpJumpTrue
+intToOpCode 6  = Just OpJumpFalse
+intToOpCode 7  = Just OpLessThan
+intToOpCode 8  = Just OpEquals
+intToOpCode 9  = Just OpRBAdj
+intToOpCode 99 = Just OpEnd
+intToOpCode _  = Nothing
+
+
+intToParamMode :: Int -> Maybe Mode
+intToParamMode 0 = Just Position
+intToParamMode 1 = Just Immediate
+intToParamMode 2 = Just Relative
+intToParamMode _ = Nothing
+
+
+opCodeToSize :: Op -> Int
+opCodeToSize OpAdd       = 4
+opCodeToSize OpMult      = 4
+opCodeToSize OpInput     = 2
+opCodeToSize OpOutput    = 2
+opCodeToSize OpJumpTrue  = 3
+opCodeToSize OpJumpFalse = 3
+opCodeToSize OpLessThan  = 4
+opCodeToSize OpEquals    = 4
+opCodeToSize OpEnd       = 1
+opCodeToSize OpRBAdj     = 2
+
+
+-- some helper functions to make setting up the machine a bit easier.
+
+loadOpcodes ::  String -> IO [Int]
+loadOpcodes opcodesFile = map (read . T.unpack) . T.split (==',')
+          <$> TIO.readFile opcodesFile
+
+
+-- and finally some runners for the program
+
+
+-- initialise a Machine with opcodes and an input
+initialiseMachineWith :: [Int] -> Int -> Machine
+initialiseMachineWith opcodes input =
+    let m = loadMachine opcodes in m { inList=[input] }
+
+
+runPure :: [Int] -> [String] -> Either MachineException ([String], ())
+runPure opcodes input = runWithPure opcodes input exec
+
+
+runIO :: [Int] -> IO (Either MachineException ())
+runIO opcodes = runWith opcodes exec
+
+
+fixRunWithState :: Machine -> Machine
+fixRunWithState m =
+    let res = runWithPureState [] exec m :: Either MachineException ([String], (Machine, ()))
+     in case res of
+        Right (_, (m', _)) -> m'
+        -- this is also horrible; TODO work out how to fix this so we don't have
+        -- to use fail
+        Left ex            -> error $ show ex
+
+
+-- Run the engine with an input until it yields or finishes.
+runMachineWithInput :: [Int] -> Machine -> (Machine, [Int])
+runMachineWithInput input m =
+    let m' = m { inList=inList m ++ input }
+        m'' = fixRunWithState m'
+        os = outList m''
+        m''' = m'' { outList=[] }
+     in (m''', os)
