@@ -41,6 +41,7 @@ library:
     - text
     - unordered-containers
     - vector
+    - primitive
 
 executables:
   aoc2019-exe:
