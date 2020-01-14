@@ -13,7 +13,7 @@ import qualified Data.Text.IO      as TIO
 import           Data.List         (break, foldl', intercalate, maximumBy,
                                     minimumBy, permutations, reverse)
 
-import Data.Char (chr)
+import           Data.Char         (chr)
 
 import           Control.Monad     (void)
 import           Safe              (headMay)

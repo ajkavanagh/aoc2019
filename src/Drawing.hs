@@ -10,10 +10,11 @@ import           Linear.V2         (V2 (..), _x, _y)
 import qualified Data.HashMap.Lazy as H
 
 type Coord = V2 Int
+type Drawing = H.HashMap Coord Int
 
 -- drawing utilities
 
-getDimens :: H.HashMap Coord Int -> ((Int,Int),(Int,Int))
+getDimens :: Drawing -> ((Int,Int),(Int,Int))
 getDimens m =
     let l = H.toList m
         getX = compare `on` ((^. _x) . fst)
@@ -25,7 +26,7 @@ getDimens m =
     in ((xmin,xmax),(ymin,ymax))
 
 
-drawWith :: (Int -> Char) -> Int -> H.HashMap Coord Int -> String
+drawWith :: (Int -> Char) -> Int -> Drawing -> String
 drawWith toChar def m =
     let ((xmin,xmax),(ymin,ymax)) = getDimens m
      in if H.null m
