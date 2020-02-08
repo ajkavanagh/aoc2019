@@ -28,20 +28,24 @@ library:
     - array
     - co-log-core
     - co-log-polysemy
+    - composition
+    - containers
     - extra
+    - hashable
     - linear
     - microlens
     - microlens-platform
     - microlens-th
+    - mtl
     - parsec
     - polysemy
     - polysemy-plugin
+    - primitive
     - safe
     - split
     - text
     - unordered-containers
     - vector
-    - primitive
 
 executables:
   aoc2019-exe:
