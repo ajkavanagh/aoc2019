@@ -41,6 +41,7 @@ library:
     - polysemy
     - polysemy-plugin
     - primitive
+    - psqueues
     - safe
     - split
     - text
