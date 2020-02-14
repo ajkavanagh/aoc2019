@@ -12,10 +12,12 @@ import qualified Data.Text.IO               as TIO
 import           Data.Composition           ((.:))
 
 {-import           Data.Array      (Array, bounds, elems, listArray, (!))-}
-import           Control.Monad              (forM, forM_, guard, mapM_, when, foldM)
+import           Control.Monad              (forM, forM_, guard, mapM_, when, foldM, unless, filterM)
 import           Control.Monad.Primitive    (PrimState)
 import           Control.Monad.ST           (ST, runST)
 import qualified Control.Monad.State.Strict as ST
+import qualified Control.Monad.RWS.Strict   as RWS
+import           Control.Monad.RWS.Strict   (ask, tell, gets, modify')
 
 import           Data.Array                 (Array)
 import qualified Data.Array                 as DA
@@ -25,12 +27,17 @@ import           Data.Array.ST              (STArray, newListArray)
 import           Data.Array.IO              (IOArray)
 import qualified Data.Array.IO              as DAIO
 
+import           Data.Word                  (Word64)
+import           Data.Function              (on)
+import qualified Data.Bits                  as DB
+
 import qualified Data.Char                  as C
 import           Data.List                  (groupBy, intercalate, isInfixOf,
                                              isPrefixOf, nub, nubBy, sort,
                                              sortBy, sortOn, (\\), partition)
 import           Data.List.Split            (chunksOf, keepDelimsL, split,
                                              whenElt)
+import qualified Data.DList                 as DL
 import qualified Data.Maybe                 as M
 
 import           Data.Hashable              (Hashable (..))
@@ -39,7 +46,8 @@ import qualified Data.HashSet               as HS
 
 {-import           Data.HashPSQ               (HashPSQ)-}
 {-import qualified Data.HashPSQ               as Q-}
-import qualified Data.IntPSQ                as Q
+--import qualified Data.IntPSQ                as Q
+import qualified Data.OrdPSQ                as Q
 
 import qualified Data.Map                   as DM
 import           Data.Semigroup
@@ -49,6 +57,8 @@ import qualified FloydWarshall              as FW
 
 import           Lens.Micro                 (both, each, ix, over, (%~), (&),
                                              (.~), (?~), (^.), _1, _2)
+
+import           Text.Printf                (printf)
 -- debuging
 import           Debug.Trace                (trace)
 
@@ -81,17 +91,40 @@ mazeToString maze =
 -- Let's have a data item.  it's a path, the number of keys found, and the cost
 -- to traverse that path.
 
-data Partial = Partial { _path  :: String  -- path is reversed
-                       , _cost  :: Int
-                       , _numKeys :: Int    -- to tell when we've finished
-                       , _coord :: Coord
-                       , _traversal :: H.HashMap Coord Cost
+data Tracker = Tracker { _keycode :: !KeyCode
+                       , _partials :: ![Partial]
+                       }
+
+instance Show Tracker where
+    show Tracker{_keycode=key, _partials=ps}
+      = "T(code=" ++ show key
+      ++ ", partials:[" ++ intercalate ", " (map showMinPartial ps)
+      ++ "])"
+
+
+type KeyCode = Word64
+
+data Partial = Partial { _path  :: !String  -- path is reversed
+                       , _pathWord :: !KeyCode -- path as bits
+                       , _cost  :: !Int
+                       , _coord :: !Coord
+                       , _traversal :: !(H.HashMap Coord Cost)
                        } deriving (Eq)
 
 
 instance Show Partial where
-    show Partial{_path=p, _cost=c, _numKeys=nk, _coord=xy, _traversal=t} =
-        "P(" ++ show p ++ ", c:" ++ show c ++ ", nk: " ++ show nk ++ ", at: " ++ show xy ++ ", len: " ++ show (H.size t) ++")"
+    show Partial{_path=p, _cost=c, _coord=xy, _traversal=t, _pathWord=pw}
+      = "P(" ++ show p
+      ++ ", c:" ++ show c
+      ++ ", at: " ++ show xy
+      ++ ", len: " ++ show (H.size t)
+      ++ ", keyCode=" ++ printf "0x%08x" pw
+      {-++ ", path is=" ++ show t-}
+      ++ ")"
+
+showMinPartial :: Partial -> String
+showMinPartial Partial{_path=p, _cost=c, _coord=xy, _traversal=t, _pathWord=pw}
+  = "P(" ++ printf "0x%08x" pw ++ ", at: " ++ show xy ++ ", c:" ++ show c ++ ")"
 
 
 
@@ -104,6 +137,7 @@ instance Ord Partial where
         case compare (length p2) (length p1) of
             EQ -> compare c1 c2
             x  -> x
+
 
 partialToCost :: Partial -> Cost
 partialToCost Partial{_cost=cost, _path=p} = Cost (length p, cost)
@@ -119,18 +153,36 @@ instance Ord Cost where
         EQ -> compare c1 c2
         x -> x
 
--- finally, we want to cache everywhere we've been, so we'll have an array of
--- partials; it's a Maybe as Nothing means that nobody has been there.
-type Cache = Array Coord (Maybe Partial)
-type MCache s = STArray (PrimState (ST s)) Coord (Maybe Partial)
-type IOCache = IOArray Coord (Maybe Partial)
+
+-- store the keys and found as a KeyCode - 1 bit per word, ignoring the entrance
+-- and starting for bit 0 as key a and bit 32 as door A
+-- UPDATE: we don't care about doors; only keys.  Two key paths are equivalent
+-- if they have the same keys as a path that doesn't include the door doesn't
+-- matter.
+charToKeyCode :: Char -> KeyCode
+charToKeyCode c
+  -- | v >= 65 && v <= 90 = 0x10000 `DB.shift` (v - 65)
+  | v >= 65 && v <= 90 = 0x00  -- we don't actually care about doors -- only keys
+  | v >= 97 && v <= 122 = 0x01 `DB.shift` (v - 97)
+  | otherwise = error "charToKeyCode only handles 'a-zA-Z'"
+    where
+        v = C.ord c
+
+
+addCharToKeyCode :: Char -> KeyCode -> KeyCode
+addCharToKeyCode c w = w DB..|. charToKeyCode c
+
+
+-- convert a whole path to a word
+stringToKeyCode :: String -> KeyCode
+stringToKeyCode = foldr addCharToKeyCode 0x00
 
 
 -- The priority Queue is a @Data.HashPSQ k p v@ where k is Coord, p is Int
 -- (cost) and v is a Partial
-{-type Queue = HashPSQ Coord Cost Partial-}
-type Queue = Q.IntPSQ Cost Partial
+type TQueue = Q.OrdPSQ KeyCode Int Tracker
 
+--
 -- As we are going to be updating the Cache a LOT, we're going to make it a
 -- mutable Array and run the whole calculation in an ST monad.  The priority
 -- queue will bind the key (a Coord) to a Priority (an Int) and a Partial that
@@ -142,260 +194,224 @@ findSolutions maze = do
     let startXY = findEntrance maze
         keys = map snd $ filter (C.isLower.snd) $ findKeysAndDoors maze
         initialPartial = Partial { _path="@"
+                                 , _pathWord=0x00
                                  , _cost=0
-                                 , _numKeys=0
                                  , _coord=startXY
                                  , _traversal=H.empty :: H.HashMap Coord Cost
                                  }
+        initialTracker = Tracker { _keycode=stringToKeyCode ""
+                                 , _partials=[initialPartial]
+                                 }
+        initialState = SState { _bestCost=maxBound                        -- best cost found so far
+                              , _costs=H.empty :: CostsCache              -- cache of xy -> key -> cost
+                              , _pqueue=Q.singleton 0x00 0 initialTracker -- priority queue of trackers
+                              , _steps=0
+                              }
+        reader = SReader { _maze=maze, _targetKeyCode=stringToKeyCode keys }
     putStrLn $ "keys=" ++ show keys
-    putStrLn $ "initial partial" ++ show initialPartial
+    putStrLn $ "initial Tracker" ++ show initialTracker
     putStrLn ""
-    {-pure $ runST $ do-}
-         {-mcache <- newListArray (DA.bounds maze) $ repeat Nothing-}
-         {-processQueue mcache maze (length keys) (Q.singleton startXY (partialToCost initialPartial) initialPartial) []-}
-    {-mcache <- newListArray (DA.bounds maze) $ repeat Nothing-}
-    {-writeArray mcache startXY (Just initialPartial)-}
-    {-processQueueIO mcache maze (length keys) (Q.singleton startXY (partialToCost initialPartial) initialPartial) []-}
-    ST.evalStateT (processQueueSTIO maze (length keys) (Q.singleton 0 (partialToCost initialPartial) initialPartial) []) (PQState {_index=1, _bestPaths=H.empty})
+    (s, w) <- RWS.execRWST processQueue reader initialState
+    putStrLn $ "Number of steps was: " ++ show (_steps s)
+    pure $ DL.toList w
 
 
--- We'll loop until the priority queue is empty -- this should result in the
--- possible paths found in the result
-{-processQueue :: MCache s -> Maze -> Int -> Queue -> [(Int, String)] -> ST s [(Int, String)]-}
-{-processQueue _ _ keysGoal queue pathsFound | trace ("\nprocessQueue: queue: " ++ show queue) False = undefined-}
-{-processQueue mcache maze keysGoal queue pathsFound = do-}
-    {-let next = Q.minView queue-}
-    {-case next of-}
-        {-Nothing -> pure pathsFound-}
-        {-Just (xy, cost, partial, q') -> do-}
-            {-mPAtXY <- readArray mcache xy  -- Maybe Partial-}
-            {--- if pAtXY < partial then we just skip this queue item, as we've-}
-            {--- already got a better path at that location.-}
-            {-let skip = case mPAtXY of Nothing -> False-}
-                                      {-Just pAtXY -> pAtXY < partial-}
-            {-if skip-}
-              {-then processQueue mcache maze keysGoal q' pathsFound-}
-              {-else do-}
-                  {-candidates <- deltaCandidates mcache maze partial-}
-                  {-let (completePaths, remain) = partition (\Partial{_numKeys=nk} -> nk == keysGoal) candidates-}
-                      {-pathsFound' = pathsFound ++ map (\Partial{_path=path, _cost=cost} -> (cost, path)) completePaths-}
-                      {-q'' = foldr (\p@Partial{_coord=xy} q -> Q.insert xy (partialToCost p) p q) q' remain-}
-                  {-processQueue mcache maze keysGoal q'' pathsFound'-}
+-- the CostsCache is a Coord -> keycode -> cost
+type CostsCache = H.HashMap Coord (H.HashMap KeyCode Int)
+
+data SState = SState { _bestCost :: !Int    -- best cost found so far
+                     , _costs :: !CostsCache -- cache of xy -> key -> cost
+                     , _pqueue :: !TQueue    -- priority queue of trackers
+                     , _steps :: !Int        -- let's count the steps
+                     } deriving Show
 
 
-{-processQueueIO :: IOCache -> Maze -> Int -> Queue -> [(Int, String)] -> IO [(Int, String)]-}
-{-processQueueIO mcache maze keysGoal queue pathsFound = do-}
-    {-let next = Q.minView queue-}
-    {-case next of-}
-        {-Nothing -> pure pathsFound-}
-        {-Just (xy, cost, partial, q') -> do-}
-            {-putStrLn $ "Processing: " ++ show (_coord partial) ++ ": " ++ show partial-}
-            {-mPAtXY <- readArray mcache xy  -- Maybe Partial-}
-            {--- if pAtXY < partial then we just skip this queue item, as we've-}
-            {--- already got a better path at that location.-}
-            {-putStrLn $ "Againt cache: " ++ show mPAtXY-}
-            {-let skip = case mPAtXY of Nothing -> False-}
-                                      {-Just pAtXY -> pAtXY < partial-}
-            {-if skip-}
-              {-then  do-}
-                  {-putStrLn "Skipping - as cache was less than partial"-}
-                  {-getLine-}
-                  {-processQueueIO mcache maze keysGoal q' pathsFound-}
-              {-else do-}
-                  {-writeArray mcache xy (Just partial)-}
-                  {-candidates <- deltaCandidatesIO mcache maze partial-}
-                  {-putStrLn $ "Candidates are: " ++ intercalate ", " (map show candidates)-}
-                  {-let (completePaths, remain) = partition (\Partial{_numKeys=nk} -> nk == keysGoal) candidates-}
-                      {-pathsFound' = pathsFound ++ map (\Partial{_path=path, _cost=cost} -> (cost, path)) completePaths-}
-                  {-putStrLn $ "adding to Queue: " ++ intercalate ", " (map show remain)-}
-                  {-let q'' = foldr (\p@Partial{_coord=xy} q -> Q.insert xy (partialToCost p) p q) q' remain-}
-                  {-showQueue q''-}
-                  {-{-getLine-}-}
-                  {-processQueueIO mcache maze keysGoal q'' pathsFound'-}
-
-
-{-processQueue2IO :: Maze -> Int -> Queue -> [(Int, String)] -> IO [(Int, String)]-}
-{-processQueue2IO maze keysGoal queue pathsFound = do-}
-    {-let next = Q.minView queue-}
-    {-case next of-}
-        {-Nothing -> pure pathsFound-}
-        {-Just (xy, cost, partial, q') -> do-}
-            {-putStrLn $ "Processing: " ++ show (_coord partial) ++ ": " ++ show partial-}
-            {-putStrLn $ "Cost here is: " ++ show (partialToCost partial)-}
-            {-candidates <- deltaCandidates2IO maze partial-}
-            {-putStrLn $ "Candidates are: " ++ intercalate ", " (map show candidates)-}
-            {-let (completePaths, remain) = partition (\Partial{_numKeys=nk} -> nk == keysGoal) candidates-}
-                {-pathsFound' = pathsFound ++ map (\Partial{_path=path, _cost=cost} -> (cost, path)) completePaths-}
-            {-putStrLn $ "adding to Queue: " ++ intercalate ", " (map show remain)-}
-            {--- add in the where the partial is to the new remains-}
-            {-let remain' = map (\p@Partial{_traversal=t} -> p {_traversal=H.insert xy (partialToCost partial) t}) remain-}
-            {-let q'' = foldr (\p@Partial{_coord=xy} q -> Q.insert xy (partialToCost p) p q) q' remain'-}
-            {-showQueue q''-}
-            {-{-getLine-}-}
-            {-processQueue2IO maze keysGoal q'' pathsFound'-}
-
-data PQState = PQState { _index :: Int
-                       , _bestPaths :: H.HashMap String Int
+data SReader = SReader { _maze :: !Maze
+                       , _targetKeyCode :: !KeyCode
                        } deriving Show
 
 
-processQueueSTIO:: Maze -> Int -> Queue -> [(Int, String)] -> ST.StateT PQState IO [(Int, String)]
-processQueueSTIO maze keysGoal queue pathsFound = do
+-- the result of the computation; a set of paths of path length and string
+type PQPaths = DL.DList (Int, String)
+
+
+-- The monad we run processQueue in
+type SolutionT m a = RWS.RWST SReader PQPaths SState m a
+
+
+-- execute the next lowest PQ item, which will call processTracker.  This
+-- returns the list of paths in the Writer
+processQueue :: SolutionT IO ()
+processQueue = do
+    SState{_bestCost=bestCost, _pqueue=queue} <- RWS.get
     let next = Q.minView queue
     case next of
-        Nothing -> pure pathsFound
-        Just (i, cost, partial@Partial{_coord=xy}, q') -> do
-            ST.lift $ putStrLn $ "Processing: item:" ++ show i ++ " at " ++ show (_coord partial) ++ ": " ++ show partial
-            ST.lift $ putStrLn $ "Cost here is: " ++ show (partialToCost partial)
-            candidates <- deltaCandidatesSTIO maze partial
-            ST.lift $ putStrLn $ "Candidates are: " ++ intercalate ", " (map show candidates)
-            let (completePaths, remain) = partition (\Partial{_numKeys=nk} -> nk == keysGoal) candidates
-                pathsFound' = pathsFound ++ map (\Partial{_path=path, _cost=cost} -> (cost, path)) completePaths
-            ST.lift $ putStrLn $ "adding to Queue: " ++ intercalate ", " (map show remain)
-            -- add in the where the partial is to the new remains
-            let remain' = map (\p@Partial{_traversal=t} -> p {_traversal=H.insert xy (partialToCost partial) t}) remain
-            {-let q'' = foldr (\p@Partial{_coord=xy} q -> Q.insert xy (partialToCost p) p q) q' remain'-}
-            q'' <- foldM (\q p -> do
-                i <- ST.gets _index
-                ST.modify' $ \pq ->  pq { _index=i+1 }
-                pure $ Q.insert (i+1) (partialToCost p) p q
-                         ) q' remain'
+        Nothing -> pure ()   -- the paths are in the Writer DLList
+        Just (key, cost, tracker, q') -> do
+            RWS.modify' $ \ss -> ss {_pqueue=q'}
+            if cost > bestCost
+              then
+                  processQueue
+              else do
+                  processTracker tracker
+                  processQueue
 
-            ST.lift $ showQueue q''
-            {-ST.lift getLine-}
-            processQueueSTIO maze keysGoal q'' pathsFound'
 
-showQueue :: Queue -> IO ()
+processTracker :: Tracker -> SolutionT IO ()
+processTracker Tracker{_partials=ps} | null ps = pure ()   -- no partials, just return
+processTracker t@Tracker{_partials=(p@Partial{ _coord=xy
+                                             , _cost=pathCost
+                                             , _pathWord=key
+                                             }:ps)
+                        , _keycode=keycode} = do
+    SReader{_targetKeyCode=goal} <- RWS.ask
+    SState{_bestCost=bestCost, _costs=costMap} <- RWS.get
+    isCheaper <- isCheaperAtXY p
+    RWS.modify' $ \ss -> ss {_steps=_steps ss +1}
+    if pathCost >= bestCost || isCheaper
+      then processTracker t {_partials=ps}
+      else do
+        -- we have the best cost at this point so update the state with the
+        -- new cost
+        cacheCostAtXY pathCost xy key
+        -- now generate candidates
+        candidates <- deltaCandidates p
+        let (completePaths, remain) =
+                partition (\Partial{_pathWord=keysWord}
+                  -> keysWord DB..&. goal == goal) candidates
+            pathsFound = map (\Partial{_path=path, _cost=cost} -> (cost, path)) completePaths
+
+        -- if we've found a path, then add them to the paths found and update
+        -- the minimu cost
+        unless (null pathsFound) $ do
+            forM_ pathsFound $ tell . DL.singleton  -- write any new paths to the Writer
+            -- update the bestCost
+            let minCost = minimum $ bestCost : map fst pathsFound
+            RWS.modify' $ \ss -> ss {_bestCost=minCost}
+
+        -- split out the Partials which are this tracker, vs other trackers.
+        let (ourPs, otherPs) =
+                partition (\Partial{_pathWord=kw} -> kw == key) remain
+
+        -- put the other paths into other trackers
+        forM_ otherPs addPartialToTracker
+
+        -- finally we process the rest of this Tracker
+        let newPs = addPartialsToPartials ourPs ps
+        processTracker t {_partials=newPs}
+
+
+-- add a partial to an existing or new tracker on the queue
+addPartialToTracker :: Partial -> SolutionT IO ()
+addPartialToTracker p@Partial{_pathWord=kw, _cost=cost} =
+    RWS.modify' $ \ss@SState{_pqueue=queue} -> ss {_pqueue=snd $ Q.alter go kw queue}
+  where
+    go :: Maybe (Int, Tracker) -> ((), Maybe (Int, Tracker))
+    -- create a new tracker for the key if the key doesn't exist
+    go Nothing = ((), Just (cost, Tracker {_keycode=kw, _partials=[p]}))
+    -- update the existing tracker and cost from the existing tracker.
+    go (Just (pcost, t@Tracker{_partials=ps})) =
+        ((), Just (minimum [cost,pcost], t {_partials=addPartialToPartials p ps}))
+
+
+addPartialsToPartials :: [Partial] -> [Partial] -> [Partial]
+addPartialsToPartials ps qs = foldr addPartialToPartials qs ps
+
+
+-- the issue here is that we DON'T want to duplicate paths at locations; we only
+-- want to keep the cheapest one and not add a partial that is at the same
+-- position/path.  We'll use the pathword and xy to avoid adding the same item
+-- and compare by cost.  We assume that ps is already sorted.
+addPartialToPartials :: Partial -> [Partial] -> [Partial]
+addPartialToPartials p = addPartialToPartials' p []
+
+
+addPartialToPartials' :: Partial -> [Partial] -> [Partial] -> [Partial]
+addPartialToPartials' p ps [] = reverse (p:ps)
+addPartialToPartials' p ps (q:qs) =
+    let Partial{_pathWord=ppw, _coord=pxy, _cost=pc} = p
+        Partial{_pathWord=qpw, _coord=qxy, _cost=qc} = q
+        stripSame = filter (\Partial{_pathWord=pw, _coord=xy} -> pw /= ppw || xy /= pxy)
+     in case pc `compare` qc of
+         LT -> reverse ps ++ (p: stripSame (q:qs))    -- insert the item and end
+         GT -> addPartialToPartials' p (q:ps) qs
+         EQ -> if ppw == qpw && pxy == qxy   -- are the at the same place
+                 then reverse ps ++ (q:qs)  -- discard the items
+                 else addPartialToPartials' p (q:ps) qs
+
+
+showQueue :: TQueue -> IO ()
 showQueue q = do
     putStrLn "Queue is:"
-    forM_ (Q.toList q) $ \(k,Cost (len, cost),Partial{_path=path}) ->
-        putStrLn $ "At: " ++ show k ++ ", Cost: " ++ show len ++ " path, cost: " ++ show cost ++ ", path=" ++ show path
+    forM_ (Q.toList q) $ \(k,cost,p) ->
+        putStrLn $ "At: " ++ show k ++ ",  cost: " ++ show cost ++ ", tracker=" ++ show p
     putStrLn ""
 
 
--- based on the current partial path, look at the deltas around and return a
--- set of partials that are viable to move towards.
-{-deltaCandidates :: MCache s -> Maze -> Partial -> ST s [Partial]-}
-{-deltaCandidates _ _ p | trace ("deltaCandidates: partial=" ++ show p) False = undefined-}
-{-deltaCandidates mcache maze p = do-}
-    {-let newDeltas = deltas $ _coord p-}
-        {-chars = map (maze DA.!) newDeltas-}
-        {-pairs = zip newDeltas chars  -- [(Coord, Char)]-}
-        {-partials = map (newPartialFromCoordChar p) pairs -- [Maybe Partial]-}
-    {-cPs <- mapM (readArray mcache) newDeltas -- [Maybe Partial]-}
-    {-let keepPs = M.catMaybes $ zipWith keepMinimumPartial cPs partials -- [Partial]-}
-    {--- write the lowest searches back to the cache.-}
-    {-forM_ keepPs $ \p'@Partial{_coord=xy} ->-}
-         {-writeArray mcache xy (Just p')-}
-    {-pure keepPs-}
-
-
-{-deltaCandidatesIO :: IOCache -> Maze -> Partial -> ST.StateT Int IO [Partial]-}
-{-deltaCandidatesIO mcache maze p = do-}
-    {-let newDeltas = deltas $ _coord p-}
-        {-chars = map (maze DA.!) newDeltas-}
-        {-pairs = zip newDeltas chars  -- [(Coord, Char)]-}
-        {-partials = map (newPartialFromCoordChar p) pairs -- [Maybe Partial]-}
-    {-cPs <- mapM (readArray mcache) newDeltas -- [Maybe Partial]-}
-    {-{-putStrLn "print candidates?"-}-}
-    {-{-x <- getLine-}-}
-    {-let x = "y"-}
-    {-when (x == "y") $ do-}
-        {-putStrLn $ "partials: " ++ intercalate ", " (map show partials)-}
-        {-putStrLn $ "cached: " ++ intercalate ", " (map show cPs)-}
-    {-let keepPs = M.catMaybes $ zipWith keepMinimumPartial cPs partials -- [Partial]-}
-    {-when (x == "y") $ do-}
-        {-ST.lift $ putStrLn $ "What's left: " ++ intercalate ", " (map show keepPs)-}
-    {--- write the lowest searches back to the cache.-}
-    {-{-forM_ keepPs $ \p'@Partial{_coord=xy} ->-}-}
-         {-{-writeArray mcache xy (Just p')-}-}
-    {-pure keepPs-}
-
-
-{-deltaCandidates2IO :: Maze -> Partial -> IO [Partial]-}
-{-deltaCandidates2IO maze p = do-}
-    {-let newDeltas = deltas $ _coord p-}
-        {-chars = map (maze DA.!) newDeltas-}
-        {-pairs = zip newDeltas chars  -- [(Coord, Char)]-}
-        {-partials = map (newPartialFromCoordChar p) pairs -- [Maybe Partial]-}
-        {-mCosts = map (`H.lookup` _traversal p) newDeltas  -- [Maybe cost]-}
-    {-{-cPs <- mapM (readArray mcache) newDeltas -- [Maybe Partial]-}-}
-    {-{-putStrLn "print candidates?"-}-}
-    {-{-x <- getLine-}-}
-    {-let x = "y"-}
-    {-when (x == "y") $ do-}
-        {-putStrLn $ "partials     : " ++ intercalate ", " (map show partials)-}
-        {-putStrLn $ "partial costs: " ++ intercalate ", " (map (show . fmap partialToCost) partials)-}
-        {-putStrLn $ "costs        : " ++ intercalate ", " (map show mCosts)-}
-    {-let keepPs = M.catMaybes $ zipWith keepPartial mCosts partials -- [Partial]-}
-    {-when (x == "y") $-}
-        {-putStrLn $ "What's left: " ++ intercalate ", " (map show keepPs)-}
-    {--- write the lowest searches back to the cache.-}
-    {-{-forM_ keepPs $ \p'@Partial{_coord=xy} ->-}-}
-         {-{-writeArray mcache xy (Just p')-}-}
-    {-pure keepPs-}
-deltaCandidatesSTIO :: Maze -> Partial -> ST.StateT PQState IO [Partial]
-deltaCandidatesSTIO maze p@Partial{_path=path} = do
-    let newDeltas = deltas $ _coord p
+deltaCandidates :: Partial -> SolutionT IO [Partial]
+deltaCandidates p@Partial{_coord=xy} = do
+    maze <- RWS.asks _maze
+    let newDeltas = deltas xy
         chars = map (maze DA.!) newDeltas
         pairs = zip newDeltas chars  -- [(Coord, Char)]
         partials = map (newPartialFromCoordChar p) pairs -- [Maybe Partial]
         mCosts = map (`H.lookup` _traversal p) newDeltas  -- [Maybe cost]
-    {-cPs <- mapM (readArray mcache) newDeltas -- [Maybe Partial]-}
-    {-putStrLn "print candidates?"-}
-    {-x <- getLine-}
-    let x = "y"
-    when (x == "y") $ do
-        ST.lift $ putStrLn $ "partials     : " ++ intercalate ", " (map show partials)
-        ST.lift $ putStrLn $ "partial costs: " ++ intercalate ", " (map (show . fmap partialToCost) partials)
-        ST.lift $ putStrLn $ "costs        : " ++ intercalate ", " (map show mCosts)
-    let keepPs = M.catMaybes $ zipWith keepPartial mCosts partials -- [Partial]
-    when (x == "y") $
-        ST.lift $ putStrLn $ "What's left: " ++ intercalate ", " (map show keepPs)
-    -- write the lowest searches back to the cache.
-    {-forM_ keepPs $ \p'@Partial{_coord=xy} ->-}
-         {-writeArray mcache xy (Just p')-}
-    -- finally lose paths which we already have a better cost for at the point
-    -- we get the path
-    m <- ST.gets _bestPaths
-    let (nps, eps) = partition (\Partial{_path=p'} -> p' /= path) keepPs  -- ([Partial],[Partial])
-        bps = map ((`H.lookup` m)._path) nps  -- [Maybe Int] -- of the new paths
-        (nps', m') = foldr (\(pa@Partial{_path=p, _cost=c}, mi) (bs, mbps) -> case mi of
-            Nothing -> (pa:bs, H.insert p c mbps)
-            Just c' -> if c' > c then (pa:bs, H.insert p c mbps)
-                                 else (bs, mbps)) ([], m) $ zip nps bps
-    ST.modify' $ \pq -> pq {_bestPaths=m'}
-    pure $ eps ++ nps'
+    let keepPs = M.catMaybes $ zipWith keepPartial mCosts partials -- [partial]
+    filterM isNotCheaperAtXY keepPs
 
 
+isCheaperAtXY :: Partial -> SolutionT IO Bool
+isCheaperAtXY Partial{_coord=xy, _pathWord=key, _cost=cost} = do
+    SState{_costs=costMap} <- RWS.get
+    let mKeyToCost = H.lookup xy costMap
+        cachedCost = M.fromMaybe maxBound $ mKeyToCost >>= H.lookup key
+    pure $ cachedCost < cost
+
+
+isNotCheaperAtXY :: Partial -> SolutionT IO Bool
+isNotCheaperAtXY p = not <$> isCheaperAtXY p
+
+
+cacheCostAtXY :: Int -> Coord -> KeyCode -> SolutionT IO ()
+cacheCostAtXY cost xy key = do
+    SState{_costs=costMap} <- RWS.get
+    let keyToCost = M.fromMaybe H.empty $ H.lookup xy costMap
+    RWS.modify' $ \ss
+        -> ss {_costs=H.insert xy (H.insert key cost keyToCost) costMap}
+
+
+-- This function returns a new Partial from the old partial and the char/xy.
+-- If the char is a Door, then the path is updated, but the _pathWord only
+-- stores keys; this is so that we don't split at Doors, but we just go through
+-- them.
 newPartialFromCoordChar :: Partial -> (Coord, Char) -> Maybe Partial
 newPartialFromCoordChar p (xy, c)
-  | c == '.' || c == '@' = Just $ p {_coord=xy, _cost=newCost}
+  | c == '.' || c == '@' = newP
   -- key
-  | C.isLower c = if c `elem` path
-                    then Just $ p {_coord=xy, _cost=newCost}
-                    else Just $ p {_coord=xy, _cost=newCost, _path=c : path, _numKeys=_numKeys p +1}
+  | isKey && hasCode = newP   -- is a key, but we already have it
+  | isKey = newPandC          -- is a key, but we don't have it
   -- door
-  | C.isUpper c = if C.toLower c `elem` path
-                    then if c `elem` path
-                           then Just $ p {_coord=xy, _cost=newCost}
-                           else Just $ p {_coord=xy, _cost=newCost, _path=c : path}
-                    else Nothing
-  | otherwise = Nothing
+  | isDoor && hasKey && hasDoor = newP  -- is a door, we have the key, but we've seen it
+  | isDoor && hasKey = newPandC         -- is a door, we have the key, and we've not seen it
+  | otherwise = Nothing                 -- none of the above
     where
+        keyCode = charToKeyCode c       -- note, this ignores Doors - only codes keys
+        pathWord = _pathWord p
         newCost = _cost p +1
         path = _path p
+        isKey = C.isLower c
+        isDoor = C.isUpper c
+        hasCode = pathWord DB..&. keyCode /= 0
+        hasDoor = c `elem` path
+        hasKey = pathWord DB..&. charToKeyCode (C.toLower c) /= 0
+        newT = H.insert xy (partialToCost p) (_traversal p)
+        newP = Just $ p {_coord=xy, _cost=newCost, _traversal=newT}
+        newPandC = Just $ p { _coord=xy
+                            , _cost=newCost
+                            , _path=c : path
+                            , _pathWord=pathWord DB..|. keyCode
+                            , _traversal=newT}
 
-
--- keep the minimum partial, but if the left one is less then just return
--- Nothing.  The reason is to avoid returning where we've already been
-keepMinimumPartial :: Maybe Partial -> Maybe Partial -> Maybe Partial
-keepMinimumPartial Nothing Nothing = Nothing
-keepMinimumPartial mp@(Just p) Nothing = Nothing
-keepMinimumPartial Nothing mp@(Just p) = mp
-keepMinimumPartial (Just p1) (Just p2) = if p1 < p2
-                                           then Nothing
-                                           else Just p2
 
 keepPartial :: Maybe Cost -> Maybe Partial -> Maybe Partial
 keepPartial _ Nothing = Nothing
@@ -478,4 +494,6 @@ main35 = do
     putStrLn "Day 18: Part 1: Many-Worlds Interpretation"
     mazeTxt <- loadMaze
     let maze = readMap mazeTxt
-    putStrLn "First path "
+    putStrLn "Solutions "
+    solns <- findSolutions maze
+    print solns

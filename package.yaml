@@ -30,6 +30,7 @@ library:
     - co-log-polysemy
     - composition
     - containers
+    - dlist
     - extra
     - hashable
     - linear
