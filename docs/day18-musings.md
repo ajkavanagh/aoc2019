@@ -132,7 +132,38 @@ A.4. get the partial at xy, keycode and compare it with our candidate; the
     lowest cost wins and gets stored back.
 A.5. Add the cost, keycode, (x,y) to the main priority queue.
 
-If we get TWO more candidates (same keycode)
-B.4. The first one is handled as per A.
-B.5. 
+So, we implemented a reasonable thing and it solves the big maze in around 30
+seconds.  Not brilliant, but not bad either.
+
+# Part 2: 4 Mazes, 4 robots, shared keys
+
+So the problem with part 2 is that it uses 4 shared mazes.
+
+e.g.
+
+```
+#############
+#g#f.D#..h#l#
+#F###e#E###.#
+#dCba@#@BcIJ#
+#############
+#nK.L@#@G...#
+#M###N#H###.#
+#o#m..#i#jk.#
+#############
+```
+
+i.e. there are 4 entrances with a common set of keys.  We have to find the
+shortest path using all the robots.  The steps appear to be:
+
+1. Find the 4 entrances; these become the starting positions.
+2. Look at any/all of the robots for their next partial.
+3. Somehow, workout which of the robots we move next, and how we track the
+   4 robots as a set.  Without running out of memory. Or taking forever.
+
+We need to alter the `Partial` to hold 4 robots; there is still the idea of
+least cost, which means we only move the partial with the lowest cost AND the
+robot with the lowest cost (if it can move).  If no robot can move then the
+`Partial` is finished?
+
 

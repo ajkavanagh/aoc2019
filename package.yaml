@@ -56,6 +56,8 @@ executables:
     ghc-options:
     - -threaded
     - -rtsopts
+    #- -prof
+    #- -fprof-auto
     - -with-rtsopts=-N
     - -O2
     - -flate-specialise
