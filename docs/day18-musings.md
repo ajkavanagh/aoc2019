@@ -166,4 +166,47 @@ least cost, which means we only move the partial with the lowest cost AND the
 robot with the lowest cost (if it can move).  If no robot can move then the
 `Partial` is finished?
 
+## Failure (again) on Part 2
 
+So the attempt to migrate the part 1 solution (which worked, but took about 30
+seconds) to part 2 with 4 robots failed.
+
+So, I'm going to try a new approach with a graph, but this time the graph will
+be at the decision points where the robot has to make a choice about which
+direction to go in.
+
+Therefore, the Nodes will be:
+
+  * the entrance
+  * a floor location where the path splits
+  * a key
+
+Doors are not stored, but are requirements to traverse an edge.  An edge (or
+vertex) maps between two nodes, and the constraint is that a key is required.
+
+So, we'll scan the map from the four locations and build up a Node/Edge map of
+each corner of the map.  Then we "just" have to solve graph.  I wonder how that
+will go.
+
+Update:
+
+So the scanning to a graph and eliminating dead-ends and corner node (nodes that
+are a '.' and with only two edges) has simplified the graph to something that
+looks like it is solvable.
+
+The main issue is picking the key for the Priority Queue (PQ).  I think the best
+option is to use a 5 tuple of 4 robot nodes and the keycode fo those positions.
+The priority can then be the cost at that position, and then the value is the
+robots positions and their histories/key-codes.  We then proceed by always
+taking the cheapest cost item and moving it forwards.  We then always insert the
+cheapest cost fo that keycode/node set and do the search on that basis.  The
+only issue is capping the search space, which is an issue. And I'm not sure how
+to do that.
+
+## So it finally worked; but it isn't that great
+
+The main issue is that solver for Day 18 Part 2 still does too much work at
+generating options and doesn't cull the options early enough; thus it repeats
+searching paths again and again.  I'll do some research on that and try to
+solve it.  Because, it still takes 5 minutes on the laptop to solve it; and
+I know it's been done in less than 5 seconds.

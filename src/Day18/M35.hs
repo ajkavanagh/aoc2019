@@ -1,62 +1,30 @@
 {-# LANGUAGE DisambiguateRecordFields #-}
 {-# LANGUAGE DuplicateRecordFields    #-}
-{-# LANGUAGE LambdaCase               #-}
 {-# LANGUAGE OverloadedStrings        #-}
-{-# LANGUAGE TupleSections            #-}
 
 module Day18.M35 where
 
 import qualified Data.Text                  as T
 import qualified Data.Text.IO               as TIO
 
-import           Data.Composition           ((.:))
-
-{-import           Data.Array      (Array, bounds, elems, listArray, (!))-}
-import           Control.Monad              (forM, forM_, guard, mapM_, when, foldM, unless, filterM)
-import           Control.Monad.Primitive    (PrimState)
-import           Control.Monad.ST           (ST, runST)
-import qualified Control.Monad.State.Strict as ST
+import           Control.Monad              (forM_, unless, filterM)
 import qualified Control.Monad.RWS.Strict   as RWS
-import           Control.Monad.RWS.Strict   (ask, tell, gets, modify')
 
 import           Data.Array                 (Array)
 import qualified Data.Array                 as DA
-import           Data.Array.MArray          (freeze, newListArray, readArray,
-                                             thaw, writeArray)
-import           Data.Array.ST              (STArray, newListArray)
-import           Data.Array.IO              (IOArray)
-import qualified Data.Array.IO              as DAIO
 
 import           Data.Word                  (Word64)
-import           Data.Function              (on)
 import qualified Data.Bits                  as DB
 
 import qualified Data.Char                  as C
-import           Data.List                  (groupBy, intercalate, isInfixOf,
-                                             isPrefixOf, nub, nubBy, sort,
-                                             sortBy, sortOn, (\\), partition)
-import           Data.List.Split            (chunksOf, keepDelimsL, split,
-                                             whenElt)
+import           Data.List                  (intercalate, partition)
+import           Data.List.Split            (chunksOf)
 import qualified Data.DList                 as DL
 import qualified Data.Maybe                 as M
 
-import           Data.Hashable              (Hashable (..))
 import qualified Data.HashMap.Strict        as H
-import qualified Data.HashSet               as HS
 
-{-import           Data.HashPSQ               (HashPSQ)-}
-{-import qualified Data.HashPSQ               as Q-}
---import qualified Data.IntPSQ                as Q
 import qualified Data.OrdPSQ                as Q
-
-import qualified Data.Map                   as DM
-import           Data.Semigroup
-import           FloydWarshall              (findMinDistances,
-                                             showShortestPaths)
-import qualified FloydWarshall              as FW
-
-import           Lens.Micro                 (both, each, ix, over, (%~), (&),
-                                             (.~), (?~), (^.), _1, _2)
 
 import           Text.Printf                (printf)
 -- debuging
@@ -284,7 +252,7 @@ processTracker t@Tracker{_partials=(p@Partial{ _coord=xy
         -- if we've found a path, then add them to the paths found and update
         -- the minimu cost
         unless (null pathsFound) $ do
-            forM_ pathsFound $ tell . DL.singleton  -- write any new paths to the Writer
+            forM_ pathsFound $ RWS.tell . DL.singleton  -- write any new paths to the Writer
             -- update the bestCost
             let minCost = minimum $ bestCost : map fst pathsFound
             RWS.modify' $ \ss -> ss {_bestCost=minCost}
